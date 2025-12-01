@@ -1,0 +1,97 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: poja-base - Computation and API
+
+Globals:
+  Function:
+    CodeUri: .
+    Runtime: java21
+    Tracing: Active
+    Architectures:
+      - arm64
+    EventInvokeConfig:
+      MaximumRetryAttempts: 0
+    
+    VpcConfig:
+      SecurityGroupIds:
+        - !Sub '{{resolve:ssm:/poja/sg/id}}'
+      SubnetIds:
+        - !Sub '{{resolve:ssm:/poja/subnet/private1/id}}'
+        - !Sub '{{resolve:ssm:/poja/subnet/private2/id}}'
+    Environment:
+      Variables:
+        ENV: !Ref Env
+        AWS_SES_SOURCE: noreply@nowhere.com
+        
+        
+        
+        JAVA_TOOL_OPTIONS: -XX:+TieredCompilation -XX:TieredStopAtLevel=1 -Dspring.main.lazy-initialization=true -Dspring.data.jpa.repositories.bootstrap-mode=lazy -Dspring.datasource.max-active=5 -Dspring.datasource.max-idle=1 -Dspring.datasource.min-idle=1 -Dspring.datasource.initial-size=1
+
+Parameters:
+  Env:
+    Type: String
+
+
+Resources:
+  FrontalServerlessHttpApi:
+    StageName: $default
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        AllowHeaders:
+          - "*"
+        AllowOrigins:
+          - "*"
+  
+  HttpApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref FrontalServerlessHttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "${FrontalFunction.Arn}:live"
+      PayloadFormatVersion: "1.0"
+      IntegrationMethod: ANY
+      TimeoutInMillis: 120000
+
+  DefaultRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref FrontalServerlessHttpApi
+      RouteKey: $default
+      Target: !Sub "integrations/${HttpApiIntegration}"
+
+  FrontalFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: com.example.handler.ApiEventHandler::handleRequest
+      MemorySize: 2048
+      Timeout: 30
+      Role: !Sub '{{resolve:ssm:/poja-base/${Env}/execution/role-arn}}'
+      Events:
+        ApiCall:
+          Type: HttpApi
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+            ApiId:
+              Ref: FrontalServerlessHttpApi
+
+  ApiUrlSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Join [ '', [ /poja-base/, !Ref Env, /api/url ] ]
+      Type: String
+      Value: !GetAtt FrontalServerlessHttpApi.ApiEndpoint
+  
+  
+Outputs:
+  ApiUrl:
+    Description: Url to access the frontal function
+    Value: !GetAtt FrontalServerlessHttpApi.ApiEndpoint
+                        
