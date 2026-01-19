@@ -16,7 +16,7 @@ public class EmailConf {
   private final Region region;
 
   public EmailConf(
-      @Value("noreply@nowhere.com") String sesSource, @Value("eu-west-3") Region region) {
+      @Value("noreply@mail.poja.io") String sesSource, @Value("eu-west-3") Region region) {
     this.sesSource = sesSource;
     this.region = region;
   }
